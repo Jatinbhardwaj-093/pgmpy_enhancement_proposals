@@ -24,7 +24,7 @@ Step 4: Repeat the process for M bootstrap iterations.
 
 Step 5: Calculate the mean stability score across all bootstrap iterations for each feature of interest.
 
-## Scoring
+## Consensus Graph Construction
 
 To construct a final consensus graph, we apply a threshold to the estimated stability scores. However, naive thresholding introduces a challenge: even if every bootstrap graph is a valid Directed Acyclic Graph (DAG), independently aggregating highly frequent edges can create cycles.
 
@@ -44,118 +44,86 @@ This method decouples the existence of a causal link from its specific orientati
 - Second, for the edges that survive, compare the relative frequency of the orientations. Assign the direction that was most frequent across the bootstrap iterations.
 - *(Note: Cycle resolution steps may still be required if the resulting orientations create a cycle).*
 
-## TabularBootstrap
+## Architecture
 
-This is going to be a result container class named `TabularBootstrap` which stores aggregated bootstrap statistics and iteration-level graph information generated during bootstrap estimation.
+The bootstrap framework constucted using two main classes:
 
-The class acts as a centralized interface for inspecting bootstrap-derived structural properties such as:
+- `BootstrapEstimator`
+- `TabularBootstrap`
 
-- edge stability scores,
-- edge orientation frequencies,
-- edge existence probabilities,
-- bootstrap iteration summaries,
-- consensus structural statistics.
+`BootstrapEstimator` is the main entry point responsible for:
+- bootstrap estimation,
+- scoring,
+- and consensus graph construction.
 
-After fitting the estimator, the bootstrap results can be accessed through:
+`TabularBootstrap` is a result container class responsible for:
+- storing iteration-level graph information,
+- aggregated bootstrap statistics,
+- and analysis utilities.
 
-```python
->>> est = BootstrapEstimator(
-        estimator=HillClimbSearch(),
-        n_resamples=10,
-        sample_frac=0.8,
-        random_state=42,
-        n_jobs=-1,
-    )
-
->>> est.fit(data)
->>> table = est.table_
-```
-
-The `TabularBootstrap` instance exposes user-facing attributes and methods for analyzing the stability of the discovered causal structure.
-
-```python
->>> table.edge_scores_
-```
-
-Returns the empirical stability score of each edge across bootstrap iterations.
-
-```python
->>> table.direction_scores_
-```
-
-Returns the orientation stability statistics for directed edges.
-In addition to aggregated statistics, the class also stores iteration-level structural information. To maintain memory efficiency with large datasets, `TabularBootstrap` stores only the row indices used for each iteration rather than full data copies. The `resample_data(n)` method reconstructs the data on the fly:
-
-```python
->>> table.bootstrap_table_
-```
-
-This returns a tabular representation where:
-
-- each row corresponds to a bootstrap iteration,
-- each column corresponds to a structural feature such as edge existence or orientation,
-- each entry indicates whether the corresponding feature was present in that bootstrap graph.
-
-Example:
-
-| iter | AB | BC | CD |
-| ---- | ---- | ---- | ---- |
-| 1    | 1    | 0    | 1    |
-| 2    | 1    | 1    | 0    |
-| 3    | 0    | 1    | 1    |
+This separation keeps the estimation logic independent from the result representation layer.
 
 
-The main idea behind `TabularBootstrap` is to provide a manageable interface for accessing iteration-level and aggregated bootstrap statistics from the fitted estimator.
-
-This also separates the bootstrap estimation logic from the result representation and analysis utilities.
-
-## API 
-
-```python
-BootstrapEstimator(
-    estimator: Instance of the causal discovery algorithm,
-    n_resamples: Number of bootstrap iterations,
-    sample_frac: Fraction of samples to use in each bootstrap dataset (e.g., 0.8 for 80%),
-    threshold: Default confidence threshold for stability scores,
-    return_type: Resultant graph type,
-    random_state: Random seed for reproducibility,
-    n_jobs: Number of parallel processes to use
-)
-```
-
-## Class Skeleton and functions
+## API
 
 ```python
 class BootstrapEstimator:
+    """
+    Main bootstrap estimation interface for causal discovery algorithms.
+    """
 
     def __init__(...):
-        ...
+        """
+        Parameters
+        ----------
+        estimator:
+            Instance of the causal discovery estimator.
+
+        n_resamples:
+            Number of bootstrap iterations.
+
+        sample_frac:
+            Fraction of samples used in each bootstrap dataset.
+
+        threshold:
+            Default confidence threshold used during consensus graph construction.
+
+        return_type:
+            Type of graph returned by the estimator.
+            Inferred automatically from the estimator instance.
+
+        seed:
+            Random seed used for reproducibility.
+
+        n_jobs:
+            Number of parallel processes.
+        """
 
     def fit(self, data):
         """
-        Functionality
-        -------------
+        Execute the bootstrap estimation pipeline.
 
-        1. Generate bootstrap datasets using `_resample`.
-        2. Apply the causal discovery algorithm on each bootstrap dataset.
-        3. Store iteration-level structural information in `TabularBootstrap`.
-        4. Repeat for `n_resamples` iterations.
-        5. Compute structural stability statistics using `_score`.
-        6. Construct the final valid causal graph using `consensus_graph`.
+        Pipeline
+        --------
+        1. Generate bootstrap resampled datasets.
+        2. Execute the causal discovery algorithm.
+        3. Store iteration-level graph information.
+        4. Compute stability statistics.
 
         Returns
         -------
+        self
 
-        Self object exposing:
-        - table_: TabularBootstrap object
-        - graph_: Final consensus causal graph
-        - adjacency_matrix_: Adjacency matrix representation
+        Attributes Created
+        ------------------
+        results_:
+            Instance of TabularBootstrap containing bootstrap statistics.
 
-        """
+        graph_:
+            Final consensus graph.
 
-    def _score(self):
-        """
-        Compute edge and orientation stability statistics from bootstrap iterations.
+        adjacency_matrix_:
+            Adjacency matrix representation of the consensus graph.
         """
 
     def _resample(self, data):
@@ -163,51 +131,157 @@ class BootstrapEstimator:
         Generate a bootstrap resampled dataset.
         """
 
-    def consensus_graph(self, threshold=None):
+    def _score(self):
         """
-        Construct and return a valid consensus graph using the computed bootstrap stability scores.
-        If threshold is not provided, uses the default threshold set during initialization.
-        This allows users to dynamically experiment with different thresholds without refitting.
+        Compute bootstrap stability statistics.
         """
+
+    def consensus_graph_(self, threshold=None, technique=None):
+        """
+        Construct a valid consensus graph.
+
+        Parameters
+        ----------
+        threshold:
+            Confidence threshold used for edge selection.
+            Defaults to self.threshold.
+
+        technique:
+            Consensus graph construction strategy.
+        """
+
+    def adjacency_matrix_(self, threshold=None, technique=None):
+        """
+        Return adjacency matrix representation of the consensus graph.
+        """
+
+    @property
+    def results_(self):
+        """
+        Return the TabularBootstrap result container.
+        """
+
+class TabularBootstrap:
+    """
+    Result container for bootstrap estimation.
+
+    Stores iteration-level graph information, aggregated stability
+    statistics, and utilities for structural analysis.
+    """
+
+    # --------------------------------------------------
+    # Aggregated Statistics
+    # --------------------------------------------------
+
+    def edge_scores_(self):
+        """
+        Return empirical edge stability scores.
+
+        Returns
+        -------
+        dict or DataFrame
+            Edge existence probabilities estimated across
+            bootstrap iterations.
+        """
+
+    def direction_scores_(self):
+        """
+        Return edge orientation stability statistics.
+
+        Returns
+        -------
+        dict or DataFrame
+            Orientation frequencies estimated across
+            bootstrap iterations.
+        """
+
+    def bootstrap_table_(self):
+        """
+        Return iteration-level structural summary table.
+
+        Example
+        -------
+        | iter | AB | BC | CD |
+        | ---- | -- | -- | -- |
+        | 1    | 1  | 0  | 1  |
+        | 2    | 1  | 1  | 0  |
+        | 3    | 0  | 1  | 1  |
+        """
+
+    # --------------------------------------------------
+    # Iteration-Level Access
+    # --------------------------------------------------
+
+    def nth_graph_(self, n):
+        """
+        Return the graph generated during the nth
+        bootstrap iteration.
+        """
+
+    def resample_data_(self, n):
+        """
+        Reconstruct and return the bootstrap dataset used
+        during the nth bootstrap iteration.
+
+        Notes
+        -----
+        Only sampled row indices are stored internally
+        for memory efficiency.
+        """
+
 ```
 
-## Example
+
+## Example Usage
 
 ```python
 >>> from pgmpy.estimators import BootstrapEstimator
->>> from pgmpy.causal_discovery import HillClimbSearch
+
+>>> from pgmpy.estimators import HillClimbSearch
+
+# Initialize bootstrap estimator
 
 >>> est = BootstrapEstimator(
         estimator=HillClimbSearch(),
         n_resamples=10,
-        sample_frac=0.8, # 80% of the original dataset
-        threshold=0.8,
-        return_type='pdag',
-        random_state=42,
-        n_jobs=-1
+        sample_frac=0.8,
+        seed=42,
+        n_jobs=-1,
     )
+
+# Run bootstrap estimation
 
 >>> est.fit(data)
 
-# Final consensus structure
+# Construct consensus graph
 
->>> est.graph_
->>> est.adjacency_matrix_
+>>> est.consensus_graph_(
+        threshold=0.8,
+        technique="greedy",
+    )
 
-# Access bootstrap statistics
+# Adjacency matrix representation
 
->>> table = est.table_
->>> table.edge_scores_
->>> table.direction_scores_
->>> table.bootstrap_table_
+>>> est.adjacency_matrix_(
+        threshold=0.8,
+        technique="greedy",
+    )
 
-# Access iteration-level information
+# Access bootstrap results
 
->>> table.nth_graph(n)
->>> table.resample_data(n) # Reconstructs dataset on the fly using stored indices
+>>> results = est.results_
 
-# Dynamically generate consensus graphs with different thresholds
->>> strict_graph = est.consensus_graph(threshold=0.9)
+# Aggregated statistics
+
+>>> results.edge_scores_()
+>>> results.direction_scores_()
+>>> results.bootstrap_table_()
+
+# Iteration-level access
+
+>>> results.nth_graph_(10)
+>>> results.resample_data_(10)
+
 ```
 
 ### References
