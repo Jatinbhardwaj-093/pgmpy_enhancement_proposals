@@ -14,36 +14,23 @@ The motivation for this approach is that causal discovery methods frequently ope
 
 ## Non-parametric Bootstrap Algorithm 
 
-Step 1: Resample the dataset with replacement to generate a new dataset of size N for each iteration.
+Step 1: Generate a resampled dataset of size N by sampling with replacement from the original observational data.
 
-Step 2: Apply the causal discovery algorithm to the newly generated dataset.
+Step 2: Run the target causal discovery estimator on the resampled dataset.
 
-Step 3: Repeat the process for M bootstrap iterations.
+Step 3: Repeat Steps 1 and 2 for M independent bootstrap iterations.
 
 Step 4: Compute the statistics of interest (e.g., edge existence probabilities, edge orientation frequencies).
 
-Step 5: Form a optimal consensus graph using the computed statistics.
+Step 5: Construct an optimal consensus graph from the aggregated bootstrap statistics.
 
-## Consensus Graph Construction
+### Consensus Graph Construction
 
-To construct a final consensus graph, we apply a threshold to the estimated stability scores. However, naive thresholding introduces a challenge: even if every bootstrap graph is a valid Directed Acyclic Graph (DAG), independently aggregating highly frequent edges can create cycles.
+From all the bootstrap graphs, we construct a consensus graph. The simplest way is to filter edges based on their bootstrap presence probabilities, retaining only those that exceed a specified threshold. 
+The issue with construction of this graph is that this can introduce cyclicity in our consensus graph. So we need to make sure that our graph remains a DAG.
 
-To address this and construct a valid consensus DAG, we support two primary consensus strategies:
+To avoid cyclicity, we can use a greedy approach. We arrange the edges in descending order of their probabilities and then add the edges that do not lead to a cycle.
 
-### 1. Greedy Edge-Addition (Kruskal-style)
-
-This approach ensures that the highest confidence edges survive, subject to DAG constraints.
-- Sort all candidate edges in descending order by their stability statistics.
-- Iteratively add edges one-by-one to the final graph.
-- If adding an edge creates a cycle, it is skipped.
-
-### 2. False Positive Rate (FPR) & Branch-and-Cut (Recommended)
-
-This method decouples thresholding from heuristic cycle resolution by introducing a statistically rigorous approach. This approach come to consensus by two steps:
-- **False Positive Rate of Edges (FPR):** Fits a Beta mixture model using the Expectation-Maximization (EM) algorithm to model the distribution of true and false edges. It calculates a posterior log odds ratio for each candidate edge, allowing a dynamic confidence threshold tailored to a desired false positive rate.
-- **Branch-and-Cut Acyclicity Optimization:** Models consensus DAG construction as an Integer Linear Program (ILP) that maximizes the total confidence score of selected edges while enforcing acyclicity using cutting-plane constraints.
-
-For a comprehensive breakdown, mathematical formulation, and examples of this methodology, please refer to `consensus_fpr_method.md`.
 
 ## Architecture
 
@@ -58,7 +45,7 @@ The bootstrap framework is implemented using a single unified class:
 ## API
 
 ```python
-class BootstrapEstimator:
+class BootstrapEstimator(_BaseCausalDiscovery):
     """
     Main bootstrap estimation interface for causal discovery algorithms.
     """
@@ -75,6 +62,12 @@ class BootstrapEstimator:
 
         sample_frac:
             Fraction of samples used in each bootstrap dataset.
+
+        threshold:
+            Threshold for the edge existence probabilities across bootstrap iterations.
+
+        show_progress:
+            Display a progress bar during bootstrap estimation.
 
         seed:
             Random seed used for reproducibility.
@@ -93,6 +86,7 @@ class BootstrapEstimator:
         2. Execute the causal discovery algorithm.
         3. Store iteration-level graph and sample index information.
         4. Compute stability statistics.
+        5. Construct consensus graph using class threshold.
 
         Returns
         -------
@@ -100,6 +94,12 @@ class BootstrapEstimator:
 
         Attributes Created
         ------------------
+        causal_graph_: DAG
+            Consensus graph causal structure estimated across bootstrap iterations. 
+
+        adjacency_matrix_: DataFrame
+            Adjacency matrix representation of the consensus graph.
+
         edge_prob_: dict or DataFrame
             Edge existence probabilities estimated across bootstrap iterations.
 
@@ -115,12 +115,12 @@ class BootstrapEstimator:
     # Consensus Graph Construction
     # --------------------------------------------------
 
-    def consensus_graph(self, threshold=None):
+    def get_consensus_graph(self, threshold=None):
         """
         Construct and return a valid consensus graph.
         """
 
-    def adjacency_matrix(self, threshold=None, technique=None):
+    def get_adjacency_matrix(self, threshold=None):
         """
         Return adjacency matrix representation of the consensus graph.
         """
@@ -133,10 +133,15 @@ class BootstrapEstimator:
         """
         Return the edge existence probabilities for the nth bootstrap iteration.
         """
-    
-    def nth_directions(self, n):
+
+    def nth_causual_graph(self, n):
         """
-        Return the orientation frequencies for the nth bootstrap iteration.
+        Return the causal graph for the nth bootstrap iteration.
+        """
+    
+    def nth_adjacency_matrix(self, n):
+        """
+        Return the adjacency matrix for the nth bootstrap iteration.
         """
     
     def resampled_data(self, n):
@@ -155,13 +160,15 @@ class BootstrapEstimator:
 
 ```python
 >>> from pgmpy.estimators import BootstrapEstimator
->>> from pgmpy.estimators import HillClimbSearch
+>>> from pgmpy.causal_discovery import HillClimbSearch
 
 # Initialize bootstrap estimator
 
 >>> est = BootstrapEstimator(
         estimator=HillClimbSearch(),
         n_resamples=10,
+        threshold=0.5,
+        show_progress=True,
         sample_frac=0.8,
         seed=42,
         n_jobs=-1,
@@ -173,21 +180,21 @@ class BootstrapEstimator:
 
 # Access fitted stability statistics directly as attributes
 
+>>> est.causal_graph_
+>>> est.adjacency_matrix_
 >>> est.edge_prob_
 >>> est.direction_prob_
 >>> est.bootstrap_results_
 
-
 # Construct consensus graph and adjacency matrix
 
->>> est.consensus_graph()
->>> est.adjacency_matrix()
+>>> est.get_consensus_graph()
+>>> est.get_adjacency_matrix()
 
 # Access iteration-level details
 
 >>> est.nth_edges(10)
->>> est.nth_directions(10)
->>> est.resample_data(10)
+>>> est.resampled_data(10)
 
 ```
 
@@ -195,4 +202,3 @@ class BootstrapEstimator:
 
 - Original Issue: https://github.com/pgmpy/pgmpy/issues/3326
 - Reference Paper: https://arxiv.org/pdf/1301.6695
-- FPR Method: https://doi.org/10.4230/OASICS.GCB.2013.46
